@@ -7,3 +7,8 @@ __pycache__
 env/
 venv/
 ENV/
+llm_config.json
+gmail_credentials.json
+gmail_token.json
+workflow.db
+logs/
