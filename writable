@@ -1,0 +1,234 @@
+# Email Agent: LLM-Powered Email Workflow Automation
+
+## Track: Agents
+
+---
+
+## Problem Statement
+
+Email overload is a universal productivity killer. Teams spend hours triaging, classifying, and responding to emails that often fall into repetitive categories: status updates, approval requests, technical support tickets, and complaints. The core problem is not just volume—it's the cognitive overhead of context-switching between different types of requests, each requiring different response strategies.
+
+Traditional email filters and rules-based systems fail because they cannot understand intent. A rule like "if subject contains 'urgent' mark as important" misses emails like "production server is down" which carry urgency in semantics, not keywords. Meanwhile, AI chatbots handle individual messages but lack workflow awareness—they don't know that an urgent email should pause for human review while a routine request can be auto-replied.
+
+This project tackles the intersection of **email understanding** and **workflow automation** using autonomous agents. The goal: an system that reads emails, understands their intent and urgency, routes them through appropriate workflows, and generates context-aware responses—all while maintaining a complete audit trail and supporting human-in-the-loop approval for critical decisions.
+
+---
+
+## Why Agents?
+
+Agents uniquely solve this problem because email processing is not a single-shot classification task—it's a **multi-step workflow** requiring different capabilities at each stage:
+
+1. **Classification Agent**: Understands email intent and urgency
+2. **Reply Agent**: Generates context-aware professional responses
+3. **Audit Agent**: Maintains tamper-proof execution logs
+4. **Orchestrator**: Routes emails through the appropriate workflow path
+
+A monolithic function cannot handle this because:
+- Each step has different failure modes (LLM hallucination, network errors, invalid classifications)
+- Urgent emails need human intervention mid-workflow
+- Batch processing requires concurrent execution with isolated error handling
+- The system must remember past decisions (audit trail) for compliance
+
+Agents provide **autonomy** (each agent owns its domain), **composability** (agents can be swapped or upgraded independently), and **observability** (each action is logged and traceable).
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        CLI / API Layer                          │
+│  python cli.py process "email" | batch --file emails.json      │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Async Orchestrator                           │
+│              (ThreadPoolExecutor + asyncio)                     │
+│         Spawns concurrent agents per email                     │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │
+           ┌───────────────┼───────────────┐
+           ▼               ▼               ▼
+    ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
+    │ Classifier  │ │ Reply Agent │ │ Audit Agent │
+    │   Agent     │ │             │ │             │
+    │             │ │  Uses RAG   │ │ Hash-chain  │
+    │ LLM call:   │ │  context    │ │ integrity   │
+    │ "urgent?"   │ │  for reply  │ │ verification│
+    └──────┬──────┘ └──────┬──────┘ └──────┬──────┘
+           │               │               │
+           ▼               ▼               ▼
+    ┌─────────────────────────────────────────────────┐
+    │              SQLite Persistence                  │
+    │  workflow_state │ tasks │ audit_log │ chunks    │
+    └─────────────────────────────────────────────────┘
+```
+
+### Workflow State Machine
+
+```
+PENDING → CLASSIFIED → [urgent?] → AWAITING_HUMAN_RESPONSE
+                      [not urgent] → COMPLETED → LOGGED & COMPLETED
+```
+
+### Key Design Decisions
+
+- **ThreadPoolExecutor** for concurrency: LLM calls are I/O-bound; threads avoid GIL issues while keeping memory low
+- **Hash-chain audit trail**: Each audit entry includes a SHA-256 hash of the previous, making tampering detectable
+- **RAG for replies**: Intent classification retrieves domain-specific context (approval templates, support scripts) before reply generation
+- **SQLite for state**: Zero-config persistence with transaction support for workflow resume
+
+---
+
+## Demo
+
+### Single Email Processing
+
+```bash
+$ python cli.py process "Our production server is down. Immediate assistance required."
+
+╭──── Email Agent ────╮
+│ Processing email:   │
+│ Our production...   │
+╰─────────────────────╯
+✓ Email processed successfully.
+```
+
+### Batch Processing (Async Multi-Agent)
+
+```bash
+$ python cli.py batch "Server down" "Approve budget" "Meeting at 3pm" "Customer complaint"
+
+╭── Batch Processing ──╮
+│ Processing 4 emails   │
+│ concurrently...       │
+╰───────────────────────╯
+
+┌── Batch Results ─────────────────────────────────────────┐
+│ # │ Email              │ Ticket    │ Classification │ Status │
+│───┼────────────────────┼───────────┼────────────────┼────────│
+│ 1 │ Server down        │ TICKET-.. │ urgent         │ logged │
+│ 2 │ Approve budget     │ TICKET-.. │ medium         │ logged │
+│ 3 │ Meeting at 3pm     │ TICKET-.. │ low            │ logged │
+│ 4 │ Customer complaint │ TICKET-.. │ medium         │ logged │
+└──────────────────────────────────────────────────────────┘
+✓ Processed 4 emails.
+```
+
+### Audit Trail Verification
+
+```bash
+$ python cli.py audit TICKET-1719412345
+
+┌── Audit Trail: TICKET-1719412345 ──────────────────────────────────┐
+│ Action            │ Details                    │ Timestamp    │ Hash │
+│───────────────────┼────────────────────────────┼──────────────┼──────│
+│ workflow_started  │ -                          │ 2026-06-26.. │ a3f..│
+│ classified        │ {"classification":"urgent"}│ 2026-06-26.. │ b7c..│
+│ awaiting_human    │ {"reason":"urgent"}        │ 2026-06-26.. │ d9e..│
+│ workflow_resumed  │ -                          │ 2026-06-26.. │ f1a..│
+│ reply_generated   │ -                          │ 2026-06-26.. │ 2b3..│
+│ workflow_completed│ -                          │ 2026-06-26.. │ 4c5..│
+└────────────────────────────────────────────────────────────────────┘
+✓ Audit trail integrity verified.
+```
+
+---
+
+## The Build
+
+### Technologies Used
+
+| Component | Technology | Why |
+|-----------|-----------|-----|
+| LLM Integration | HTTP API (local endpoint) | Flexibility to swap models |
+| Embeddings | sentence-transformers (all-MiniLM-L6-v2) | Fast, local RAG embeddings |
+| NLP | spaCy (en_core_web_sm) | Entity extraction and chunking |
+| Fuzzy Matching | rapidfuzz | File similarity search for tools |
+| Database | SQLite | Zero-config, transactional state |
+| CLI | click + rich | Professional CLI with tables/spinners |
+| Async | asyncio + ThreadPoolExecutor | Concurrent email processing |
+| Integrity | hashlib (SHA-256) | Tamper-proof audit trail |
+
+### Project Structure
+
+```
+task_agent/
+├── cli.py                    # CLI entry point
+├── main.py                   # Programmatic entry point
+├── workflows/
+│   ├── email_workflow.py     # Sync workflow engine
+│   └── async_workflow.py     # Async batch processing
+├── my_agents/
+│   ├── agent.py              # Tool-using agent
+│   ├── classifier_agent.py   # Email classification
+│   ├── reply_agent.py        # Reply generation
+│   └── audit_agent.py        # Audit trail with integrity
+├── tools/
+│   ├── rag.py                # RAG context retrieval
+│   ├── tools.py              # NLP + vector tools
+│   ├── filetools.py          # File system tools
+│   ├── ticket_manager.py     # Ticket ID generation
+│   ├── logger.py             # Structured JSON logging
+│   └── hash.py               # SHA-256 hashing
+├── memory/
+│   └── sqlite_store.py       # Database operations
+├── llm/
+│   └── client.py             # LLM API client
+├── models/
+│   └── schemas.py            # EmailTask data model
+├── dataset/
+│   └── emails_structured.py  # 50 sample emails
+├── Dockerfile                # Container deployment
+├── docker-compose.yml        # Docker orchestration
+└── requirements.txt          # Dependencies
+```
+
+### Setup Instructions
+
+```bash
+# Clone repository
+git clone https://github.com/yourusername/task_agent.git
+cd task_agent
+
+# Install dependencies
+pip install -r requirements.txt
+python -m spacy download en_core_web_sm
+
+# Start local LLM endpoint (e.g., llama.cpp, Ollama)
+# Default: http://127.0.0.1:8080/chat/completions
+
+# Run single email
+python cli.py process "Server is down"
+
+# Run batch
+python cli.py batch "Email 1" "Email 2" "Email 3"
+
+# Docker
+docker-compose build
+docker-compose run email-agent process "Server is down"
+```
+
+### Key Implementation Highlights
+
+1. **Audit Trail Integrity**: Each audit entry hashes `ticket_id + action + timestamp`, creating a chain. `verify_integrity()` replays the chain to detect tampering.
+
+2. **Async Batch Processing**: `ThreadPoolExecutor(max_workers=4)` runs up to 4 LLM calls concurrently. Each email is independent—isolated error handling prevents one failure from killing the batch.
+
+3. **RAG Context Retrieval**: Intent classification maps to domain-specific reply templates. The reply agent receives both the email and retrieved context, grounding responses in company policies.
+
+4. **Workflow Resume**: State is serialized to SQLite at every transition. Interrupted workflows can be resumed from any point without re-processing completed steps.
+
+---
+
+## Evaluation Mapping
+
+| Key Concept | Implementation |
+|-------------|----------------|
+| Agent / Multi-agent system | classifier_agent, reply_agent, audit_agent, orchestrator |
+| MCP Server | Tool registry pattern (tools.py, filetools.py) with structured I/O |
+| Security features | Hash-chain audit trail with integrity verification |
+| Deployability | Dockerfile + docker-compose.yml with env var configuration |
+| Agent skills | CLI with 9 commands: process, batch, classify, draft, list, status, resume, audit, stats |
+| Async / Concurrency | asyncio + ThreadPoolExecutor for parallel email processing |

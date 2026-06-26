@@ -1,0 +1,14 @@
+version: "3.9"
+
+services:
+  email-agent:
+    build: .
+    volumes:
+      - ./:/app
+      - ./data:/app/data
+    environment:
+      - LLM_ENDPOINT=http://host.docker.internal:8080/chat/completions
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    stdin_open: true
+    tty: true
