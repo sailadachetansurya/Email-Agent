@@ -90,10 +90,10 @@ def cmd_help():
     commands = [
         ("/help", "Show this help menu", "/help"),
         ("/process <text|@file>", "Process email from text or file", "/process @email.txt"),
-        ("/batch @file.json", "Process multiple emails from JSON", "/batch @emails.json"),
+        ("/batch @file", "Process multiple emails from file", "/batch @emails.txt"),
         ("/classify <text|@file>", "Classify email only", "/classify @email.txt"),
         ("/draft <text|@file>", "Generate reply draft", "/draft @email.txt"),
-        ("/import <file>", "Import and process email file", "/import inbox.mbox"),
+        ("/import <file>", "Import emails (one per line)", "/import emails.txt"),
         ("/list [--status S]", "List all tasks", "/list --status pending"),
         ("/status <id>", "Show task details", "/status 1"),
         ("/resume <id>", "Resume paused workflow", "/resume 1"),
@@ -114,8 +114,12 @@ def cmd_help():
         table.add_row(cmd, desc, example)
 
     print_output(table)
-    console.print("[dim]  File input: Use @filename to read email from file (e.g., /process @email.txt)[/dim]")
-    console.print("[dim]  JSON format: [{\"email_text\": \"...\"}, ...] for batch processing[/dim]")
+    console.print("[dim]  File format (.txt): One email per line, each line is a string[/dim]")
+    console.print("[dim]  File format (.json): [{\"email_text\": \"...\"}, ...] or [\"email1\", \"email2\"]")
+    console.print("[dim]  Example emails.txt:[/dim]")
+    console.print("[dim]    Our server is down[/dim]")
+    console.print("[dim]    Please approve the budget[/dim]")
+    console.print("[dim]    Meeting at 3pm tomorrow[/dim]")
 
 
 def cmd_process(args):
@@ -124,14 +128,24 @@ def cmd_process(args):
         print_output(f"[red]{err}[/red]")
         return
     db = get_db()
-    with console.status("[bold green]Processing...[/bold green]"):
-        email_workflow.process_email(content, db)
-    print_output(Panel(f"[green]✓[/green] Email processed successfully.", title="Result"))
+    from tools.ticket_manager import create_Ticket
+    from models.schemas import EmailTask
+
+    task = EmailTask(content)
+    task.db = db
+    create_Ticket(task)
+
+    console.print(f"\n  [cyan]Ticket {task.Ticket_id}[/cyan] — processing...")
+    console.print(f"  [dim]Email:[/dim] {content[:70]}")
+
+    email_workflow.process_email(content, db)
+
+    console.print(f"  [green]✓[/green] Completed\n")
 
 
 def cmd_batch(args):
     if not args:
-        print_output("[red]Usage:[/red] /batch @emails.json")
+        print_output("[red]Usage:[/red] /batch @emails.txt or /batch @emails.json")
         return
 
     if args[0].startswith("@"):
@@ -140,17 +154,58 @@ def cmd_batch(args):
             print_output(f"[red]File not found: {filepath}[/red]")
             return
         with open(filepath, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        if isinstance(data, list):
-            emails = [item if isinstance(item, str) else item.get("email_text", "") for item in data]
+            content = f.read()
+
+        if filepath.endswith(".json"):
+            data = json.loads(content)
+            if isinstance(data, list):
+                emails = [item if isinstance(item, str) else item.get("email_text", "") for item in data]
+            else:
+                print_output("[red]JSON must be a list of strings or objects with email_text field[/red]")
+                return
         else:
-            print_output("[red]JSON must be a list of strings or objects with email_text field[/red]")
-            return
+            emails = [line.strip() for line in content.splitlines() if line.strip()]
     else:
         emails = args
 
-    with console.status(f"[bold green]Processing {len(emails)} emails...[/bold green]"):
-        results = asyncio.run(process_batch(emails))
+    total = len(emails)
+    console.print(f"\n[bold cyan]Spawning {total} sub-agents...[/bold cyan]\n")
+
+    results = []
+    completed = 0
+    import threading
+    from tools.ticket_manager import create_Ticket
+    from models.schemas import EmailTask
+    from memory.sqlite_store import DataBase
+
+    db = DataBase("workflow.db")
+
+    def process_one(idx, email_text):
+        nonlocal completed
+        try:
+            task = EmailTask(email_text)
+            task.db = db
+            create_Ticket(task)
+            console.print(f"  [dim]({idx + 1}/{total})[/dim] [cyan]Ticket {task.Ticket_id}[/cyan] — processing: {email_text[:50]}...")
+
+            from workflows.async_workflow import _process_sync
+            result = _process_sync(email_text, db)
+            completed += 1
+            console.print(f"  [dim]({completed}/{total})[/dim] [green]✓[/green] {task.Ticket_id} — {result.get('classification', 'done')}")
+            return result
+        except Exception as e:
+            completed += 1
+            console.print(f"  [dim]({completed}/{total})[/dim] [red]✗[/red] Error: {str(e)[:40]}")
+            return {"email": email_text, "error": str(e)}
+
+    threads = []
+    for i, email in enumerate(emails):
+        t = threading.Thread(target=lambda idx=i, e=email: results.append(process_one(idx, e)))
+        threads.append(t)
+        t.start()
+
+    for t in threads:
+        t.join()
 
     table = Table(title="Batch Results", box=box.ROUNDED)
     table.add_column("#", style="dim")
@@ -159,12 +214,15 @@ def cmd_batch(args):
     table.add_column("Status", style="green")
 
     for i, r in enumerate(results):
-        if "error" in r:
+        if r is None:
+            table.add_row(str(i + 1), "-", "-", "[dim]no result[/dim]")
+        elif "error" in r:
             table.add_row(str(i + 1), "-", "-", f"[red]ERROR[/red]")
         else:
             table.add_row(str(i + 1), r.get("Ticket_id", "-"), r.get("classification", "-"), r.get("status", "-"))
 
     print_output(table)
+    console.print(f"[green]✓[/green] Processed {completed}/{total} emails.\n")
 
 
 def cmd_classify(args):
@@ -199,10 +257,8 @@ def cmd_import(args):
         return
     with open(filepath, "r", encoding="utf-8") as f:
         content = f.read()
-    emails = [e.strip() for e in content.split("\n\n") if e.strip()]
-    with console.status(f"[bold green]Importing {len(emails)} emails...[/bold green]"):
-        results = asyncio.run(process_batch(emails))
-    print_output(f"[green]✓[/green] Imported and processed {len(results)} emails.")
+    emails = [line.strip() for line in content.splitlines() if line.strip()]
+    cmd_batch(["@"] + [filepath])
 
 
 def cmd_list(args):

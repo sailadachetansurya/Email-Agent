@@ -126,17 +126,38 @@ inbox-pilot [local] $ /gmail unread
 
 ```bash
 inbox-pilot [local] $ /process @email.txt
-✓ Email processed successfully.
 
-inbox-pilot [local] $ /batch @emails.json
+  Ticket TICKET-1719412345 — processing...
+  Email: Our server is down
+  ✓ Completed
+```
+
+### Batch Processing with Sub-Agent Progress
+
+```
+inbox-pilot [local] $ /batch @emails.txt
+
+Spawning 4 sub-agents...
+
+  (1/4) Ticket TICKET-1719412345 — processing: Our server is down...
+  (2/4) Ticket TICKET-1719412346 — processing: Please approve the budget...
+  (1/4) ✓ TICKET-1719412345 — urgent
+  (3/4) Ticket TICKET-1719412347 — processing: Meeting at 3pm...
+  (2/4) ✓ TICKET-1719412346 — medium
+  (4/4) Ticket TICKET-1719412348 — processing: Customer complaint...
+  (3/4) ✓ TICKET-1719412347 — low
+  (4/4) ✓ TICKET-1719412348 — medium
 
 ┌── Batch Results ─────────────────────────────────────────┐
-│ # │ Ticket       │ Classification │ Status                │
-│───┼──────────────┼────────────────┼───────────────────────│
-│ 1 │ TICKET-1719..│ urgent         │ awaiting_human        │
-│ 2 │ TICKET-1719..│ medium         │ logged & completed    │
-│ 3 │ TICKET-1719..│ low            │ logged & completed    │
+│ # │ Ticket           │ Classification │ Status            │
+│───┼──────────────────┼────────────────┼───────────────────│
+│ 1 │ TICKET-171941..  │ urgent         │ awaiting_human    │
+│ 2 │ TICKET-171941..  │ medium         │ logged & completed│
+│ 3 │ TICKET-171941..  │ low            │ logged & completed│
+│ 4 │ TICKET-171941..  │ medium         │ logged & completed│
 └──────────────────────────────────────────────────────────┘
+✓ Processed 4/4 emails.
+```
 ```
 
 ### Audit Trail Verification
@@ -243,11 +264,11 @@ python tui.py
 
 ### Key Implementation Highlights
 
-1. **Gmail OAuth Flow**: Local callback server on port 8085 receives auth code, exchanges for tokens, stores locally. Each user authorizes their own Gmail—no shared credentials.
+1. **Sub-Agent Parallel Processing**: Each email spawns a dedicated sub-agent (up to 4 concurrent). Real-time progress shows ticket creation, processing status, and completion with `(completed/total)` counters.
 
-2. **Audit Trail Integrity**: Each audit entry hashes `ticket_id + action + timestamp`, creating a chain. `verify_integrity()` replays the chain to detect tampering.
+2. **Gmail OAuth Flow**: Local callback server on port 8085 receives auth code, exchanges for tokens, stores locally. Each user authorizes their own Gmail—no shared credentials.
 
-3. **Async Batch Processing**: `ThreadPoolExecutor(max_workers=4)` runs up to 4 LLM calls concurrently. Each email is independent—isolated error handling prevents one failure from killing the batch.
+3. **Audit Trail Integrity**: Each audit entry hashes `ticket_id + action + timestamp`, creating a chain. `verify_integrity()` replays the chain to detect tampering.
 
 4. **RAG Context Retrieval**: Intent classification maps to domain-specific reply templates. The reply agent receives both the email and retrieved context, grounding responses in company policies.
 
@@ -259,9 +280,9 @@ python tui.py
 
 | Key Concept | Implementation |
 |-------------|----------------|
-| Agent / Multi-agent system | classifier_agent, reply_agent, audit_agent, orchestrator |
+| Agent / Multi-agent system | classifier_agent, reply_agent, audit_agent, sub-agent orchestrator with parallel execution |
 | MCP Server | Tool registry pattern (tools.py, filetools.py) with structured I/O |
 | Security features | Hash-chain audit trail + Gmail OAuth 2.0 (no password storage) |
 | Deployability | Dockerfile + docker-compose.yml with env var configuration |
 | Agent skills | Interactive TUI with 16 commands + file input + Gmail integration |
-| Async / Concurrency | asyncio + ThreadPoolExecutor for parallel email processing |
+| Async / Concurrency | ThreadPoolExecutor with real-time sub-agent progress tracking |

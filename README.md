@@ -192,9 +192,10 @@ inbox-pilot [local] $ /help
 | Command | Description |
 |---------|-------------|
 | `/process <text\|@file>` | Process email from text or file |
-| `/batch @emails.json` | Process multiple emails from JSON |
+| `/batch @emails.txt\|@emails.json` | Process multiple emails from file |
 | `/classify <text\|@file>` | Classify email only |
 | `/draft <text\|@file>` | Generate reply draft |
+| `/import <file>` | Import emails (one per line) |
 | `/gmail login` | Login to Gmail via OAuth |
 | `/gmail unread` | Fetch unread emails |
 | `/gmail fetch 5` | Fetch last 5 emails |
@@ -209,14 +210,49 @@ inbox-pilot [local] $ /help
 | `/clear` | Clear terminal |
 | `/exit` | Exit |
 
-**File Input (no typing huge text):**
+**File Input — One email per line:**
+
+```
+# emails.txt
+Our server is down
+Please approve the budget
+Meeting at 3pm tomorrow
+Customer complaint about delivery
+```
 
 ```bash
-# Read email from file
-/inbox-pilot [local] $ /process @email.txt
+# Process batch
+/inbox-pilot [local] $ /batch @emails.txt
 
-# Batch from JSON
-/inbox-pilot [local] $ /batch @emails.json
+# Process single email from file
+/inbox-pilot [local] $ /process @email.txt
+```
+
+**Batch Processing with Sub-Agent Progress:**
+
+```
+inbox-pilot [local] $ /batch @emails.txt
+
+Spawning 4 sub-agents...
+
+  (1/4) Ticket TICKET-1719412345 — processing: Our server is down...
+  (2/4) Ticket TICKET-1719412346 — processing: Please approve the budget...
+  (1/4) ✓ TICKET-1719412345 — urgent
+  (3/4) Ticket TICKET-1719412347 — processing: Meeting at 3pm...
+  (2/4) ✓ TICKET-1719412346 — medium
+  (4/4) Ticket TICKET-1719412348 — processing: Customer complaint...
+  (3/4) ✓ TICKET-1719412347 — low
+  (4/4) ✓ TICKET-1719412348 — medium
+
+┌── Batch Results ─────────────────────────────────────────┐
+│ # │ Ticket           │ Classification │ Status            │
+│───┼──────────────────┼────────────────┼───────────────────│
+│ 1 │ TICKET-171941..  │ urgent         │ awaiting_human    │
+│ 2 │ TICKET-171941..  │ medium         │ logged & completed│
+│ 3 │ TICKET-171941..  │ low            │ logged & completed│
+│ 4 │ TICKET-171941..  │ medium         │ logged & completed│
+└──────────────────────────────────────────────────────────┘
+✓ Processed 4/4 emails.
 ```
 
 ### CLI Commands

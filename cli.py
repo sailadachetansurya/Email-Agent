@@ -134,19 +134,33 @@ def draft(email_text):
 
 @cli.command()
 @click.argument("emails", nargs=-1)
-@click.option("--file", "-f", "file_path", help="JSON file with list of emails")
+@click.option("--file", "-f", "file_path", help="File with emails (JSON or TXT, one per line)")
 def batch(emails, file_path):
     """Process multiple emails concurrently.
 
-    Accepts emails as space-separated arguments or a JSON file.
-    Example: python cli.py batch "Email 1" "Email 2" "Email 3"
+    Accepts emails as space-separated arguments or a file.
+    TXT format: one email per line
+    JSON format: ["email1", "email2"] or [{"email_text": "..."}]
+
+    Example: python cli.py batch "Email 1" "Email 2"
+    Example: python cli.py batch --file emails.txt
     Example: python cli.py batch --file emails.json
     """
     email_list = list(emails)
 
     if file_path:
-        with open(file_path, "r") as f:
-            email_list = json.load(f)
+        with open(file_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        if file_path.endswith(".json"):
+            data = json.loads(content)
+            if isinstance(data, list):
+                email_list = [item if isinstance(item, str) else item.get("email_text", "") for item in data]
+            else:
+                console.print("[red]✗[/red] JSON must be a list of strings or objects with email_text field.")
+                return
+        else:
+            email_list = [line.strip() for line in content.splitlines() if line.strip()]
 
     if not email_list:
         console.print("[red]✗[/red] No emails provided. Pass emails as arguments or use --file.")
