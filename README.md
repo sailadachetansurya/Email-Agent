@@ -169,12 +169,12 @@ Use these to test classification accuracy and reply generation.
 
 See `To-do.md` for 50+ improvement items including:
 - ✅ Workflow pause/resume (Complete)
-- 🔲 State machine formalization (Enum)
+- ✅ State machine formalization (Enum)
 - 🔲 Error handling & retry logic
-- 🔲 Production logging system
+- ✅ Production logging system
 - 🔲 API layer (FastAPI)
 - 🔲 Async workflow execution
-- 🔲 RAG vector store integration
+- ✅ RAG vector store integration
 - 🔲 External email integration (IMAP/SMTP)
 - 🔲 Approval dashboard (Streamlit/FastAPI)
 - 🔲 Security & access control
