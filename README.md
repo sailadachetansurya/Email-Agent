@@ -58,11 +58,14 @@ PENDING → CLASSIFIED → [urgent?] → AWAITING_HUMAN_RESPONSE
 
 ## Features
 
+- **Interactive TUI**: Claude Code-style terminal interface with auto-completion and rich panels
+- **Gmail Integration**: OAuth 2.0 login, fetch unread, send emails directly from terminal
 - **LLM-Powered Classification**: Automatically classifies emails into `urgent`, `medium`, or `low` priority
 - **Context-Aware Reply Generation**: Uses RAG (Retrieval Augmented Generation) to generate professional responses
 - **Workflow State Machine**: 5-state workflow engine with persistent state tracking
 - **Human Approval Flow**: Urgent emails require human intervention before auto-reply
 - **Async Batch Processing**: Process multiple emails concurrently with ThreadPoolExecutor
+- **File-Based Input**: Read emails from `.txt` or `.json` files (no typing huge text)
 - **Audit Trail**: Hash-chain integrity verification for compliance
 - **SQLite Persistence**: Complete workflow history and state management
 - **Ticket System**: Auto-generated tickets for tracking
@@ -72,8 +75,12 @@ PENDING → CLASSIFIED → [urgent?] → AWAITING_HUMAN_RESPONSE
 
 ```
 task_agent/
+├── tui.py                    # Interactive TUI (main entry point)
 ├── cli.py                    # CLI entry point (9 commands)
 ├── main.py                   # Programmatic entry point
+├── auth/
+│   ├── gmail_oauth.py        # OAuth 2.0 flow with local callback
+│   └── gmail_client.py       # Gmail API wrapper (read/send/search)
 ├── workflows/
 │   ├── email_workflow.py     # Sync workflow engine
 │   └── async_workflow.py     # Async batch processing
@@ -92,99 +99,137 @@ task_agent/
 ├── memory/
 │   └── sqlite_store.py       # Database operations
 ├── llm/
-│   └── client.py             # LLM API client
+│   └── client.py             # LLM API client (multi-provider)
 ├── models/
 │   └── schemas.py            # EmailTask data model
 ├── dataset/
 │   ├── emails_structured.py  # 50 sample emails
 │   └── dataset.md            # Sample emails for testing
-├── hermes/                   # Experimental task agent
 ├── Dockerfile                # Container deployment
 ├── docker-compose.yml        # Docker orchestration
 ├── requirements.txt          # Dependencies
-├── workflow.db               # SQLite database (runtime)
-└── To-do.md                  # Roadmap with 50+ items
+├── gmail_credentials.json    # OAuth credentials (gitignored)
+├── gmail_token.json          # OAuth tokens (gitignored)
+└── llm_config.json           # LLM provider config (gitignored)
 ```
 
 ## Installation & Setup
 
-### Requirements
+> **Requirements:** Python 3.10+ | Local LLM endpoint (port 8080) | Google Cloud project (for Gmail)
 
-- Python 3.10+
-- Local LLM endpoint (e.g., llama.cpp, Ollama) running on port 8080
-
-### Local Setup
+### Quick Start
 
 ```bash
-# Clone repository
 git clone https://github.com/yourusername/task_agent.git
 cd task_agent
-
-# Install dependencies
 pip install -r requirements.txt
 python -m spacy download en_core_web_sm
+python tui.py
+```
 
-# Configure LLM endpoint (optional, defaults to http://127.0.0.1:8080/chat/completions)
-export LLM_ENDPOINT="http://127.0.0.1:8080/chat/completions"
+### Gmail OAuth Setup (Optional)
+
+> **Each user must do this once** — same as `gh auth login` for GitHub CLI.
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a project → Enable **Gmail API**
+3. Go to **Credentials** → Create **OAuth 2.0 Client ID**
+4. Set redirect URI to `http://localhost:8085/callback`
+5. Download credentials JSON
+6. In TUI, run:
+
+```
+inbox-pilot [local] $ /gmail login
+```
+
+Browser opens → authorize → done. Tokens stored locally in `gmail_token.json`.
+
+### LLM Provider Setup
+
+```bash
+# Use local LLM (default)
+python tui.py
+
+# Switch to Google AI Studio
+# In TUI:
+/models
+/provider google --api-key YOUR_GOOGLE_API_KEY
 ```
 
 ### Docker Setup
 
 ```bash
-# Build and run
 docker-compose build
-docker-compose run email-agent process "Our server is down"
-
-# Or use CLI directly
-docker-compose run email-agent batch "Email 1" "Email 2" "Email 3"
+docker-compose run email-agent
 ```
 
-### Configuration
-
-LLM endpoint is configurable via environment variable:
+### Environment Variables
 
 ```bash
-# Default: http://127.0.0.1:8080/chat/completions
-export LLM_ENDPOINT="http://your-llm-server:8080/chat/completions"
+export LLM_ENDPOINT="http://127.0.0.1:8080/chat/completions"
 export DB_PATH="workflow.db"
 export LOG_DIR="logs"
 ```
 
 ## Usage
 
+### Interactive TUI (Recommended)
+
+```bash
+python tui.py
+```
+
+```
+  ╔╦╗╔═╗╔╦╗╦═╗╦╔═╗╔═╗╦ ╦  ╦ ╦╔═╗╔═╗╦╔═
+   ║ ║╣  ║ ╠╦╝║╠═╣║  ╠═╣  ╠═╣║╣ ╚═╗╠╩╗
+   ╩ ╚═╝ ╩ ╩╚═╩╩ ╩╚═╝╩ ╩  ╩ ╩╚═╝╚═╝╩ ╩
+
+inbox-pilot [local] $ /help
+```
+
+**TUI Commands:**
+
+| Command | Description |
+|---------|-------------|
+| `/process <text\|@file>` | Process email from text or file |
+| `/batch @emails.json` | Process multiple emails from JSON |
+| `/classify <text\|@file>` | Classify email only |
+| `/draft <text\|@file>` | Generate reply draft |
+| `/gmail login` | Login to Gmail via OAuth |
+| `/gmail unread` | Fetch unread emails |
+| `/gmail fetch 5` | Fetch last 5 emails |
+| `/gmail send to@x.com` | Send email |
+| `/list` | List all tasks |
+| `/status <id>` | Show task details |
+| `/resume <id>` | Resume paused workflow |
+| `/audit <ticket>` | View audit trail |
+| `/stats` | Workflow statistics |
+| `/models` | View/switch LLM providers |
+| `/provider google` | Switch to Google AI Studio |
+| `/clear` | Clear terminal |
+| `/exit` | Exit |
+
+**File Input (no typing huge text):**
+
+```bash
+# Read email from file
+/inbox-pilot [local] $ /process @email.txt
+
+# Batch from JSON
+/inbox-pilot [local] $ /batch @emails.json
+```
+
 ### CLI Commands
 
 ```bash
-# Process a single email
 python cli.py process "Our production server is down"
-
-# Process multiple emails concurrently
-python cli.py batch "Server down" "Approve budget" "Meeting at 3pm"
-
-# Process emails from JSON file
 python cli.py batch --file emails.json
-
-# Classify without full workflow
 python cli.py classify "Invoice approval needed"
-
-# Generate reply draft only
 python cli.py draft "Meeting at 3pm"
-
-# List all tasks
-python cli.py list
 python cli.py list --status pending
-
-# Show task details
 python cli.py status 1
-
-# Resume paused workflow
-python cli.py resume 1
-
-# View audit trail
 python cli.py audit TICKET-1719412345
-
-# View statistics
-python cli.py stats
+python cli.py models
 ```
 
 ### Programmatic Usage
@@ -302,10 +347,12 @@ See `To-do.md` for 50+ improvement items including:
 - ✅ Structured JSON logging
 - ✅ Async batch processing
 - ✅ Docker deployment
-- ✅ CLI with 9 commands
+- ✅ Interactive TUI with auto-completion
+- ✅ Gmail OAuth integration
+- ✅ Multi-provider LLM support (local + Google AI Studio)
+- ✅ File-based email input
 - 🔲 Error handling & retry logic
 - 🔲 API layer (FastAPI)
-- 🔲 External email integration (IMAP/SMTP)
 - 🔲 Approval dashboard (Streamlit/FastAPI)
 
 ## Development Notes
@@ -328,7 +375,7 @@ See `To-do.md` for 50+ improvement items including:
 | MCP Server | Tool registry pattern (tools.py, filetools.py) with structured I/O |
 | Security features | Hash-chain audit trail with integrity verification |
 | Deployability | Dockerfile + docker-compose.yml with env var configuration |
-| Agent skills | CLI with 9 commands: process, batch, classify, draft, list, status, resume, audit, stats |
+| Agent skills | Interactive TUI with 16 commands + file input + Gmail integration |
 | Async / Concurrency | asyncio + ThreadPoolExecutor for parallel email processing |
 
 ## License

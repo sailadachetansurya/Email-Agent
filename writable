@@ -37,17 +37,23 @@ Agents provide **autonomy** (each agent owns its domain), **composability** (age
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        CLI / API Layer                          │
-│  python cli.py process "email" | batch --file emails.json      │
+│                    Interactive TUI (tui.py)                     │
+│         Claude Code-style terminal with auto-completion         │
+│    /process @email.txt | /batch @emails.json | /gmail unread   │
 └──────────────────────────┬──────────────────────────────────────┘
                            │
+           ┌───────────────┼───────────────┐
+           ▼               ▼               ▼
+    ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
+    │   Gmail     │ │   LLM       │ │   Async     │
+    │   OAuth     │ │  Providers  │ │ Orchestrator│
+    │             │ │             │ │             │
+    │  Read/Send  │ │ local/google│ │ ThreadPool  │
+    │  emails     │ │  switchable │ │ + asyncio   │
+    └──────┬──────┘ └──────┬──────┘ └──────┬──────┘
+           │               │               │
+           └───────────────┼───────────────┘
                            ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Async Orchestrator                           │
-│              (ThreadPoolExecutor + asyncio)                     │
-│         Spawns concurrent agents per email                     │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │
            ┌───────────────┼───────────────┐
            ▼               ▼               ▼
     ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
@@ -83,54 +89,71 @@ PENDING → CLASSIFIED → [urgent?] → AWAITING_HUMAN_RESPONSE
 
 ## Demo
 
-### Single Email Processing
+### Interactive TUI Launch
 
 ```bash
-$ python cli.py process "Our production server is down. Immediate assistance required."
+$ python tui.py
 
-╭──── Email Agent ────╮
-│ Processing email:   │
-│ Our production...   │
-╰─────────────────────╯
-✓ Email processed successfully.
+    ███████╗███╗   ███╗ █████╗ ██╗██╗
+    ██╔════╝████╗ ████║██╔══██╗██║██║
+    █████╗  ██╔████╔██║███████║██║██║
+    ██╔══╝  ██║╚██╔╝██║██╔══██║██║██║
+    ███████╗██║ ╚═╝ ██║██║  ██║██║███████╗
+    ╚══════╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝╚══════╝
+
+inbox-pilot [local] $ /help
 ```
 
-### Batch Processing (Async Multi-Agent)
+### Gmail Integration
 
 ```bash
-$ python cli.py batch "Server down" "Approve budget" "Meeting at 3pm" "Customer complaint"
+inbox-pilot [local] $ /gmail login
+Opening browser for Gmail login...
+✓ Logged in as alice@gmail.com (12,847 messages)
 
-╭── Batch Processing ──╮
-│ Processing 4 emails   │
-│ concurrently...       │
-╰───────────────────────╯
+inbox-pilot [local] $ /gmail unread
+
+┌── Unread Emails (3) ──────────────────────────────────────┐
+│ From            │ Subject                    │ Snippet     │
+│─────────────────┼────────────────────────────┼─────────────│
+│ bob@company.com │ Urgent: Server Down        │ Production..│
+│ hr@company.com  │ PTO Request                │ Please app..│
+│ finance@company │ Invoice #1234              │ Attached i..│
+└──────────────────────────────────────────────────────────┘
+```
+
+### Process Email from File
+
+```bash
+inbox-pilot [local] $ /process @email.txt
+✓ Email processed successfully.
+
+inbox-pilot [local] $ /batch @emails.json
 
 ┌── Batch Results ─────────────────────────────────────────┐
-│ # │ Email              │ Ticket    │ Classification │ Status │
-│───┼────────────────────┼───────────┼────────────────┼────────│
-│ 1 │ Server down        │ TICKET-.. │ urgent         │ logged │
-│ 2 │ Approve budget     │ TICKET-.. │ medium         │ logged │
-│ 3 │ Meeting at 3pm     │ TICKET-.. │ low            │ logged │
-│ 4 │ Customer complaint │ TICKET-.. │ medium         │ logged │
+│ # │ Ticket       │ Classification │ Status                │
+│───┼──────────────┼────────────────┼───────────────────────│
+│ 1 │ TICKET-1719..│ urgent         │ awaiting_human        │
+│ 2 │ TICKET-1719..│ medium         │ logged & completed    │
+│ 3 │ TICKET-1719..│ low            │ logged & completed    │
 └──────────────────────────────────────────────────────────┘
-✓ Processed 4 emails.
 ```
 
 ### Audit Trail Verification
 
 ```bash
-$ python cli.py audit TICKET-1719412345
+inbox-pilot [local] $ /audit TICKET-1719412345
 
-┌── Audit Trail: TICKET-1719412345 ──────────────────────────────────┐
-│ Action            │ Details                    │ Timestamp    │ Hash │
-│───────────────────┼────────────────────────────┼──────────────┼──────│
-│ workflow_started  │ -                          │ 2026-06-26.. │ a3f..│
-│ classified        │ {"classification":"urgent"}│ 2026-06-26.. │ b7c..│
-│ awaiting_human    │ {"reason":"urgent"}        │ 2026-06-26.. │ d9e..│
-│ workflow_resumed  │ -                          │ 2026-06-26.. │ f1a..│
-│ reply_generated   │ -                          │ 2026-06-26.. │ 2b3..│
-│ workflow_completed│ -                          │ 2026-06-26.. │ 4c5..│
-└────────────────────────────────────────────────────────────────────┘
+┌── Audit Trail: TICKET-1719412345 ─────────────────────────────┐
+│ Action            │ Details           │ Time      │ Hash        │
+│───────────────────┼───────────────────┼───────────┼────────────│
+│ workflow_started  │ -                 │ 14:32:01  │ a3f8b2c1.. │
+│ classified        │ {"urgent"}        │ 14:32:03  │ b7c9d4e2.. │
+│ awaiting_human    │ {"reason":"urgt"} │ 14:32:04  │ d9e1f5a3.. │
+│ workflow_resumed  │ -                 │ 14:45:12  │ f1a2b6c4.. │
+│ reply_generated   │ -                 │ 14:45:15  │ 2b3c7d8e.. │
+│ workflow_completed│ -                 │ 14:45:16  │ 4c5e9f0a.. │
+└────────────────────────────────────────────────────────────────┘
 ✓ Audit trail integrity verified.
 ```
 
@@ -142,12 +165,13 @@ $ python cli.py audit TICKET-1719412345
 
 | Component | Technology | Why |
 |-----------|-----------|-----|
-| LLM Integration | HTTP API (local endpoint) | Flexibility to swap models |
+| TUI | prompt_toolkit + rich | Interactive terminal with auto-completion |
+| Gmail | OAuth 2.0 + Gmail API | Secure email read/send without password |
+| LLM Integration | Multi-provider (local + Google) | Flexibility to swap models |
 | Embeddings | sentence-transformers (all-MiniLM-L6-v2) | Fast, local RAG embeddings |
 | NLP | spaCy (en_core_web_sm) | Entity extraction and chunking |
 | Fuzzy Matching | rapidfuzz | File similarity search for tools |
 | Database | SQLite | Zero-config, transactional state |
-| CLI | click + rich | Professional CLI with tables/spinners |
 | Async | asyncio + ThreadPoolExecutor | Concurrent email processing |
 | Integrity | hashlib (SHA-256) | Tamper-proof audit trail |
 
@@ -155,8 +179,12 @@ $ python cli.py audit TICKET-1719412345
 
 ```
 task_agent/
+├── tui.py                    # Interactive TUI (main entry)
 ├── cli.py                    # CLI entry point
-├── main.py                   # Programmatic entry point
+├── main.py                   # Programmatic entry
+├── auth/
+│   ├── gmail_oauth.py        # OAuth 2.0 flow
+│   └── gmail_client.py       # Gmail API client
 ├── workflows/
 │   ├── email_workflow.py     # Sync workflow engine
 │   └── async_workflow.py     # Async batch processing
@@ -175,7 +203,7 @@ task_agent/
 ├── memory/
 │   └── sqlite_store.py       # Database operations
 ├── llm/
-│   └── client.py             # LLM API client
+│   └── client.py             # Multi-provider LLM client
 ├── models/
 │   └── schemas.py            # EmailTask data model
 ├── dataset/
@@ -188,37 +216,42 @@ task_agent/
 ### Setup Instructions
 
 ```bash
-# Clone repository
+# Quick start
 git clone https://github.com/yourusername/task_agent.git
 cd task_agent
-
-# Install dependencies
 pip install -r requirements.txt
 python -m spacy download en_core_web_sm
+python tui.py
+```
 
-# Start local LLM endpoint (e.g., llama.cpp, Ollama)
-# Default: http://127.0.0.1:8080/chat/completions
+### Gmail OAuth Setup (Optional)
 
-# Run single email
-python cli.py process "Server is down"
+> **Each user must do this once** — standard OAuth flow, same as `gh auth login`.
 
-# Run batch
-python cli.py batch "Email 1" "Email 2" "Email 3"
+1. Create Google Cloud project → Enable Gmail API
+2. Create OAuth 2.0 credentials → Set redirect URI: `http://localhost:8085/callback`
+3. In TUI: `/gmail login` → Browser opens → Authorize → Done
 
-# Docker
-docker-compose build
-docker-compose run email-agent process "Server is down"
+### LLM Provider Switching
+
+```bash
+# In TUI:
+/models                    # View providers
+/provider google --api-key KEY  # Switch to Google AI Studio
+/provider local            # Switch back to local
 ```
 
 ### Key Implementation Highlights
 
-1. **Audit Trail Integrity**: Each audit entry hashes `ticket_id + action + timestamp`, creating a chain. `verify_integrity()` replays the chain to detect tampering.
+1. **Gmail OAuth Flow**: Local callback server on port 8085 receives auth code, exchanges for tokens, stores locally. Each user authorizes their own Gmail—no shared credentials.
 
-2. **Async Batch Processing**: `ThreadPoolExecutor(max_workers=4)` runs up to 4 LLM calls concurrently. Each email is independent—isolated error handling prevents one failure from killing the batch.
+2. **Audit Trail Integrity**: Each audit entry hashes `ticket_id + action + timestamp`, creating a chain. `verify_integrity()` replays the chain to detect tampering.
 
-3. **RAG Context Retrieval**: Intent classification maps to domain-specific reply templates. The reply agent receives both the email and retrieved context, grounding responses in company policies.
+3. **Async Batch Processing**: `ThreadPoolExecutor(max_workers=4)` runs up to 4 LLM calls concurrently. Each email is independent—isolated error handling prevents one failure from killing the batch.
 
-4. **Workflow Resume**: State is serialized to SQLite at every transition. Interrupted workflows can be resumed from any point without re-processing completed steps.
+4. **RAG Context Retrieval**: Intent classification maps to domain-specific reply templates. The reply agent receives both the email and retrieved context, grounding responses in company policies.
+
+5. **Workflow Resume**: State is serialized to SQLite at every transition. Interrupted workflows can be resumed from any point without re-processing completed steps.
 
 ---
 
@@ -228,7 +261,7 @@ docker-compose run email-agent process "Server is down"
 |-------------|----------------|
 | Agent / Multi-agent system | classifier_agent, reply_agent, audit_agent, orchestrator |
 | MCP Server | Tool registry pattern (tools.py, filetools.py) with structured I/O |
-| Security features | Hash-chain audit trail with integrity verification |
+| Security features | Hash-chain audit trail + Gmail OAuth 2.0 (no password storage) |
 | Deployability | Dockerfile + docker-compose.yml with env var configuration |
-| Agent skills | CLI with 9 commands: process, batch, classify, draft, list, status, resume, audit, stats |
+| Agent skills | Interactive TUI with 16 commands + file input + Gmail integration |
 | Async / Concurrency | asyncio + ThreadPoolExecutor for parallel email processing |

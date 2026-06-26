@@ -28,14 +28,20 @@ COMMANDS = [
     "/models", "/provider", "/gmail", "/import", "/clear", "/exit"
 ]
 
-BANNER = """
-[bold magenta]
-  ╔╦╗╔═╗╔╦╗╦═╗╦╔═╗╔═╗╦ ╦  ╦ ╦╔═╗╔═╗╦╔═
-   ║ ║╣  ║ ╠╦╝║╠═╣║  ╠═╣  ╠═╣║╣ ╚═╗╠╩╗
-   ╩ ╚═╝ ╩ ╩╚═╩╩ ╩╚═╝╩ ╩  ╩ ╩╚═╝╚═╝╩ ╩
-[/bold magenta]
-[dim]  Gmail-Powered Email Intelligence — Type [bold]/help[/bold] for commands[/dim]
+# BANNER = """
+BANNER = r"""
+[bold cyan]
+    ███████╗███╗   ███╗ █████╗ ██╗██╗
+    ██╔════╝████╗ ████║██╔══██╗██║██║
+    █████╗  ██╔████╔██║███████║██║██║
+    ██╔══╝  ██║╚██╔╝██║██╔══██║██║██║
+    ███████╗██║ ╚═╝ ██║██║  ██║██║███████╗
+    ╚══════╝╚═╝     ╚═╝╚═╝  ╚═╝╚═╝╚══════╝
+[/bold cyan]
+[bold white]Email Agent[/bold white]  •  [green]AI-powered Gmail Assistant[/green]
+[dim]Type [bold]/help[/bold] to get started[/dim]
 """
+# """
 
 
 class EmailCompleter(Completer):
