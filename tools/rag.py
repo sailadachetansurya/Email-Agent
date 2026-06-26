@@ -1,7 +1,9 @@
 
+from sentence_transformers import SentenceTransformer
+
 from llm.client import chat 
 
-
+model = SentenceTransformer('all-MiniLM-L6-v2')
 INTENT_CONTENT_MAP = { "intent-1": "Content for intent 1" ,
                    "intent-2": "Content for intent 2" ,
                    "intent-3": "Content for intent 3",
@@ -31,4 +33,21 @@ def add_context(input):
         "final_input": f"{context}\n\nEMAIL:\n{input}"
     }
 
-def convert_to_embedding()
+def chunk_input(text, chunk_size: int = 200, overlap: int = 50): 
+    chunks = []
+    for i in range(0, len(text), max(1, chunk_size - overlap)):
+        chunk = text[i:i + chunk_size]
+        chunks.append(chunk)
+    return chunks
+
+def get_embeddings(chunks):
+    
+    embeddings = []
+    for chunk in chunks:
+        embedding = model.encode(chunk)
+        embeddings.append(embedding)
+    return embeddings
+
+def get_similarity(embedding1, embedding2):
+    return model.similarity(embedding1, embedding2)
+

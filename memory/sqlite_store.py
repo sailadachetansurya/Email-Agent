@@ -26,3 +26,23 @@ class DataBase :
         ''', (workflow_id,))
         result = cursor.fetchone()
         return json.loads(result[0]) if result else None
+
+    def create_chunks_table(self) :
+        with self.conn:
+            self.conn.execute('''
+                CREATE TABLE IF NOT EXISTS chunks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    doc_id TEXT,
+                    chunk_text TEXT,
+                    embedding TEXT
+                );
+            ''')
+            print("Chunks table created successfully.")
+
+            
+    def add_chunk(self, doc_id, chunk_text, embedding):
+        self.conn.execute(
+            "INSERT INTO chunks (doc_id, chunk_text, embedding) VALUES (?, ?, ?)",
+            (doc_id, chunk_text, json.dumps(embedding))
+        )
+        self.conn.commit()

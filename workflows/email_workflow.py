@@ -1,4 +1,4 @@
-from agents import classifier_agent, reply_agent
+from my_agents import classifier_agent, reply_agent
 from memory.sqlite_store import DataBase
 from models.schemas import EmailTask
 from tools import logger
