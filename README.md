@@ -56,7 +56,7 @@ pip install requests sentence-transformers
 
 Currently uses hardcoded values in `llm/client.py`. Consider moving to `config.yaml`.
 
-```python
+```python  
 # llm/client.py
 LLM_ENDPOINT = "http://127.0.0.1:8000/chat/completions"
 ```
