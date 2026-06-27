@@ -7,23 +7,27 @@ class EmailTask:
         self.email_text = email_text
         self.classification = None
         self.reply = "None"
-        self.status = TaskState.PENDING
+        self._status = TaskState.PENDING
         self.Ticket_id = None
         self.db = None
 
     @property
-    def status_str(self):
-        return self.status.value if isinstance(self.status, TaskState) else self.status
+    def status(self):
+        return self._status
 
     @status.setter
     def status(self, value):
         if isinstance(value, str):
             try:
-                self.status = TaskState(value)
+                self._status = TaskState(value)
             except ValueError:
-                self.status = value
+                self._status = value
         else:
-            self.status = value
+            self._status = value
+
+    @property
+    def status_str(self):
+        return self._status.value if isinstance(self._status, TaskState) else self._status
 
     def to_dict(self):
         return {
