@@ -12,3 +12,5 @@ gmail_credentials.json
 gmail_token.json
 workflow.db
 logs/
+output/
+metrics/

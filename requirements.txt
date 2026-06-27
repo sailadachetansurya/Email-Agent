@@ -6,3 +6,5 @@ rapidfuzz>=3.5.0
 click>=8.1.0
 rich>=13.7.0
 prompt_toolkit>=3.0.0
+tenacity>=8.2.0
+streamlit>=1.30.0

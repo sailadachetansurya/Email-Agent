@@ -1,6 +1,8 @@
 import os
 import json
 import requests
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tools.metrics import track
 
 CONFIG_FILE = os.path.join(os.path.dirname(__file__), "..", "llm_config.json")
 
@@ -52,7 +54,6 @@ def list_providers():
     current = config.get("provider", "local")
     providers = []
     for name, settings in config["providers"].items():
-        marker = " (active)" if name == current else ""
         providers.append({"name": name, "model": settings.get("model", ""), "active": name == current})
     return providers, current
 
@@ -70,11 +71,16 @@ def set_model(model_name):
     _save_config(config)
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    retry=retry_if_exception_type((requests.ConnectionError, requests.Timeout))
+)
 def _chat_local(messages):
     config = _load_config()
     endpoint = config["providers"]["local"]["endpoint"]
     payload = {"messages": messages}
-    response = requests.post(endpoint, json=payload)
+    response = requests.post(endpoint, json=payload, timeout=30)
     data = response.json()
     if response.status_code != 200:
         raise Exception(f"API Error: {data}")
@@ -83,12 +89,17 @@ def _chat_local(messages):
     return data["choices"][0]["message"]["content"]
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    retry=retry_if_exception_type((requests.ConnectionError, requests.Timeout))
+)
 def _chat_google(messages):
     config = _load_config()
     google_config = config["providers"]["google"]
     api_key = google_config.get("api_key", "")
     if not api_key:
-        raise Exception("Google API key not set. Use: python cli.py models --api-key YOUR_KEY")
+        raise Exception("Google API key not set. Use: /provider google --api-key YOUR_KEY")
     model = google_config.get("model", "gemini-2.0-flash")
     endpoint = google_config["endpoint"].format(model=model)
     url = f"{endpoint}?key={api_key}"
@@ -97,7 +108,7 @@ def _chat_google(messages):
         role = "user" if msg["role"] in ("user", "system") else "model"
         contents.append({"role": role, "parts": [{"text": msg["content"]}]})
     payload = {"contents": contents}
-    response = requests.post(url, json=payload)
+    response = requests.post(url, json=payload, timeout=30)
     data = response.json()
     if response.status_code != 200:
         raise Exception(f"Google API Error: {data}")
@@ -116,9 +127,10 @@ def chat(user_input):
 
     provider = get_provider()
 
-    if provider == "local":
-        return _chat_local(messages)
-    elif provider == "google":
-        return _chat_google(messages)
-    else:
-        raise Exception(f"Unknown provider: {provider}")
+    with track(f"llm_{provider}"):
+        if provider == "local":
+            return _chat_local(messages)
+        elif provider == "google":
+            return _chat_google(messages)
+        else:
+            raise Exception(f"Unknown provider: {provider}")

@@ -4,6 +4,7 @@ from memory.sqlite_store import DataBase
 from models.schemas import EmailTask
 from tools import logger
 from tools.ticket_manager import create_Ticket
+from tools.output_writer import save_result
 
 
 def route_task(task):
@@ -65,6 +66,7 @@ def resume_workflow(db, task_dict):
     task.reply = reply_agent.generate_reply(task.email_text)
     task.status = "completed"
     audit.log_action(task.Ticket_id, "reply_generated")
+    save_result(task.email_text, task.classification, task.reply, task.Ticket_id)
     DataBase.save_workflow_state(db, task.Ticket_id, task.to_dict())
     return route_task(task)
 
@@ -96,12 +98,15 @@ def process_email(email_text, db):
         task.status = "awaiting_human_response"
         audit.log_action(task.Ticket_id, "awaiting_human", {"reason": "urgent classification"})
         DataBase.save_workflow_state(task.db, task.Ticket_id, task.to_dict())
+        save_result(task.email_text, task.classification, task.reply, task.Ticket_id)
         return
     else:
         task.reply = reply_agent.generate_reply(task.email_text)
         task.status = "completed"
         audit.log_action(task.Ticket_id, "reply_generated")
         DataBase.save_workflow_state(task.db, task.Ticket_id, task.to_dict())
+
+    save_result(task.email_text, task.classification, task.reply, task.Ticket_id)
 
     logger.log(task)
     task.status = "logged & completed"

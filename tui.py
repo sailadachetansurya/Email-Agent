@@ -25,7 +25,8 @@ DB_PATH = os.environ.get("DB_PATH", "workflow.db")
 COMMANDS = [
     "/help", "/process", "/batch", "/classify", "/draft",
     "/list", "/status", "/resume", "/audit", "/stats",
-    "/models", "/provider", "/gmail", "/import", "/clear", "/exit"
+    "/models", "/provider", "/gmail", "/import", "/outputs",
+    "/dashboard", "/metrics", "/clear", "/exit"
 ]
 
 # BANNER = """
@@ -106,6 +107,9 @@ def cmd_help():
         ("/gmail fetch <n>", "Fetch last n emails", "/gmail fetch 5"),
         ("/gmail send <to> <subject>", "Send email", "/gmail send user@test.com"),
         ("/gmail logout", "Logout from Gmail", "/gmail logout"),
+        ("/outputs", "List saved results in output/", "/outputs"),
+        ("/dashboard", "Open Streamlit dashboard", "/dashboard"),
+        ("/metrics", "Show performance metrics", "/metrics"),
         ("/clear", "Clear terminal", "/clear"),
         ("/exit", "Exit application", "/exit"),
     ]
@@ -129,8 +133,10 @@ def cmd_process(args):
         return
     db = get_db()
     from tools.ticket_manager import create_Ticket
+    from tools.output_writer import start_job, end_job
     from models.schemas import EmailTask
 
+    job_file = start_job()
     task = EmailTask(content)
     task.db = db
     create_Ticket(task)
@@ -139,8 +145,10 @@ def cmd_process(args):
     console.print(f"  [dim]Email:[/dim] {content[:70]}")
 
     email_workflow.process_email(content, db)
+    end_job()
 
-    console.print(f"  [green]✓[/green] Completed\n")
+    console.print(f"  [green]✓[/green] Completed")
+    console.print(f"  [dim]Output: {job_file}[/dim]\n")
 
 
 def cmd_batch(args):
@@ -171,25 +179,28 @@ def cmd_batch(args):
     total = len(emails)
     console.print(f"\n[bold cyan]Spawning {total} sub-agents...[/bold cyan]\n")
 
+    from tools.output_writer import start_job, end_job
+    job_file = start_job()
+
     results = []
     completed = 0
     import threading
-    from tools.ticket_manager import create_Ticket
-    from models.schemas import EmailTask
-    from memory.sqlite_store import DataBase
-
-    db = DataBase("workflow.db")
 
     def process_one(idx, email_text):
         nonlocal completed
         try:
+            from memory.sqlite_store import DataBase
+            from tools.ticket_manager import create_Ticket
+            from models.schemas import EmailTask
+            from workflows.async_workflow import _process_sync
+
+            db = DataBase("workflow.db")
             task = EmailTask(email_text)
             task.db = db
             create_Ticket(task)
             console.print(f"  [dim]({idx + 1}/{total})[/dim] [cyan]Ticket {task.Ticket_id}[/cyan] — processing: {email_text[:50]}...")
 
-            from workflows.async_workflow import _process_sync
-            result = _process_sync(email_text, db)
+            result = _process_sync(email_text)
             completed += 1
             console.print(f"  [dim]({completed}/{total})[/dim] [green]✓[/green] {task.Ticket_id} — {result.get('classification', 'done')}")
             return result
@@ -207,6 +218,8 @@ def cmd_batch(args):
     for t in threads:
         t.join()
 
+    end_job()
+
     table = Table(title="Batch Results", box=box.ROUNDED)
     table.add_column("#", style="dim")
     table.add_column("Ticket", style="cyan")
@@ -222,7 +235,8 @@ def cmd_batch(args):
             table.add_row(str(i + 1), r.get("Ticket_id", "-"), r.get("classification", "-"), r.get("status", "-"))
 
     print_output(table)
-    console.print(f"[green]✓[/green] Processed {completed}/{total} emails.\n")
+    console.print(f"[green]✓[/green] Processed {completed}/{total} emails.")
+    console.print(f"[dim]  Output saved to: {job_file}[/dim]\n")
 
 
 def cmd_classify(args):
@@ -387,6 +401,24 @@ def cmd_provider(args):
         print_output(f"[red]✗[/red] {e}")
 
 
+def cmd_outputs(args):
+    from tools.output_writer import list_results
+    files = list_results()
+    if not files:
+        print_output("[dim]No output files yet. Process some emails first.[/dim]")
+        return
+    table = Table(title=f"Output Files ({len(files)})", box=box.ROUNDED)
+    table.add_column("#", style="dim")
+    table.add_column("Filename", style="cyan")
+    table.add_column("Modified", style="yellow")
+    import time
+    for i, f in enumerate(files[:20]):
+        mtime = time.strftime("%Y-%m-%d %H:%M", time.localtime(f.stat().st_mtime))
+        table.add_row(str(i + 1), f.name, mtime)
+    print_output(table)
+    console.print(f"[dim]  Output directory: {os.path.abspath('output')}[/dim]")
+
+
 def cmd_gmail(args):
     from auth.gmail_oauth import login, logout, is_logged_in
     from auth.gmail_client import get_profile, get_unread, list_messages, get_message, send_message
@@ -485,6 +517,39 @@ def cmd_gmail(args):
         print_output(f"[red]Unknown gmail subcommand: {subcmd}[/dim]")
 
 
+def cmd_dashboard():
+    import subprocess
+    import sys
+    console.print("[bold cyan]Starting Streamlit dashboard...[/bold cyan]")
+    console.print("[dim]Opening in browser at http://localhost:8501[/dim]")
+    subprocess.Popen([sys.executable, "-m", "streamlit", "run", "dashboard.py", "--server.headless", "true"])
+
+
+def cmd_metrics():
+    from tools.metrics import get_stats
+    stats = get_stats()
+    if not stats:
+        print_output("[dim]No metrics recorded yet. Process some emails first.[/dim]")
+        return
+    table = Table(title="Performance Metrics", box=box.ROUNDED)
+    table.add_column("Operation", style="cyan")
+    table.add_column("Count", style="green")
+    table.add_column("Avg (ms)", style="yellow")
+    table.add_column("P95 (ms)", style="yellow")
+    table.add_column("Errors", style="red")
+    table.add_column("Error %", style="red")
+    for name, data in stats.items():
+        table.add_row(
+            name,
+            str(data["count"]),
+            str(data["avg_ms"]),
+            str(data["p95_ms"]),
+            str(data["errors"]),
+            f"{data['error_rate']}%"
+        )
+    print_output(table)
+
+
 def process_command(user_input):
     parts = user_input.strip().split()
     if not parts:
@@ -497,6 +562,7 @@ def process_command(user_input):
         "/help": lambda: cmd_help(),
         "/process": lambda: cmd_process(args),
         "/batch": lambda: cmd_batch(args),
+        "/outputs": lambda: cmd_outputs(args),
         "/classify": lambda: cmd_classify(args),
         "/draft": lambda: cmd_draft(args),
         "/import": lambda: cmd_import(args),
@@ -508,6 +574,8 @@ def process_command(user_input):
         "/models": lambda: cmd_models(),
         "/provider": lambda: cmd_provider(args),
         "/gmail": lambda: cmd_gmail(args),
+        "/dashboard": lambda: cmd_dashboard(),
+        "/metrics": lambda: cmd_metrics(),
         "/clear": lambda: os.system("cls" if os.name == "nt" else "clear"),
     }
 

@@ -6,7 +6,8 @@ class DataBase:
     def __init__(self, db_name):
         self.db_name = db_name
         db_path = db_name
-        self.conn = sqlite3.connect(db_path)
+        self.conn = sqlite3.connect(db_path, timeout=10)
+        self.conn.execute("PRAGMA journal_mode=WAL")
         self._ensure_tables()
 
     def _ensure_tables(self):
