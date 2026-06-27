@@ -16,11 +16,11 @@ from rich import box
 
 from memory.sqlite_store import DataBase
 from workflows import email_workflow
-from workflows.async_workflow import process_batch
+from workflows.async_workflow import process_batch_sync
 from llm.client import list_providers, set_provider, get_provider, set_google_api_key, set_model
 
 console = Console()
-DB_PATH = os.environ.get("DB_PATH", "workflow.db")
+DB_PATH = os.environ.get("DB_PATH", os.path.join("workflows", "workflow.db"))
 
 COMMANDS = [
     "/help", "/process", "/batch", "/classify", "/draft",
@@ -177,48 +177,32 @@ def cmd_batch(args):
         emails = args
 
     total = len(emails)
-    console.print(f"\n[bold cyan]Spawning {total} sub-agents...[/bold cyan]\n")
+    console.print(f"\n[bold cyan]Processing {total} emails with 4 workers...[/bold cyan]")
+    console.print("[dim]Press Esc to cancel[/dim]\n")
 
-    from tools.output_writer import start_job, end_job
-    job_file = start_job()
-
-    results = []
-    completed = 0
     import threading
+    from workflows.async_workflow import process_batch_sync
 
-    def process_one(idx, email_text):
-        nonlocal completed
-        try:
-            from memory.sqlite_store import DataBase
-            from tools.ticket_manager import create_Ticket
-            from models.schemas import EmailTask
-            from workflows.async_workflow import _process_sync
+    cancel_event = threading.Event()
 
-            db = DataBase("workflow.db")
-            task = EmailTask(email_text)
-            task.db = db
-            create_Ticket(task)
-            console.print(f"  [dim]({idx + 1}/{total})[/dim] [cyan]Ticket {task.Ticket_id}[/cyan] — processing: {email_text[:50]}...")
+    def on_progress(done, tot):
+        pass
 
-            result = _process_sync(email_text)
-            completed += 1
-            console.print(f"  [dim]({completed}/{total})[/dim] [green]✓[/green] {task.Ticket_id} — {result.get('classification', 'done')}")
-            return result
-        except Exception as e:
-            completed += 1
-            console.print(f"  [dim]({completed}/{total})[/dim] [red]✗[/red] Error: {str(e)[:40]}")
-            return {"email": email_text, "error": str(e)}
+    batch_thread = threading.Thread(
+        target=lambda: setattr(cmd_batch, '_result', process_batch_sync(emails, on_progress, cancel_event)),
+        daemon=True
+    )
+    batch_thread.start()
 
-    threads = []
-    for i, email in enumerate(emails):
-        t = threading.Thread(target=lambda idx=i, e=email: results.append(process_one(idx, e)))
-        threads.append(t)
-        t.start()
+    while batch_thread.is_alive():
+        batch_thread.join(timeout=0.1)
 
-    for t in threads:
-        t.join()
+    result_tuple = getattr(cmd_batch, '_result', None)
+    if result_tuple is None:
+        print_output("[red]Batch cancelled or failed.[/red]")
+        return
 
-    end_job()
+    results, job_file = result_tuple
 
     table = Table(title="Batch Results", box=box.ROUNDED)
     table.add_column("#", style="dim")
@@ -235,7 +219,7 @@ def cmd_batch(args):
             table.add_row(str(i + 1), r.get("Ticket_id", "-"), r.get("classification", "-"), r.get("status", "-"))
 
     print_output(table)
-    console.print(f"[green]✓[/green] Processed {completed}/{total} emails.")
+    console.print(f"[green]✓[/green] Processed {len([r for r in results if r and 'error' not in r])}/{total} emails.")
     console.print(f"[dim]  Output saved to: {job_file}[/dim]\n")
 
 

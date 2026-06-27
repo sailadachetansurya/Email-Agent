@@ -7,7 +7,7 @@ import pandas as pd
 
 st.set_page_config(page_title="Inbox Pilot Dashboard", layout="wide")
 
-DB_PATH = os.environ.get("DB_PATH", "workflow.db")
+DB_PATH = os.environ.get("DB_PATH", os.path.join("workflows", "workflow.db"))
 METRICS_DIR = os.environ.get("METRICS_DIR", "metrics")
 
 

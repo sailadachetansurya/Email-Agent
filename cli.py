@@ -17,7 +17,7 @@ from models.schemas import EmailTask
 
 console = Console()
 
-DB_PATH = os.environ.get("DB_PATH", "workflow.db")
+DB_PATH = os.environ.get("DB_PATH", os.path.join("workflows", "workflow.db"))
 
 
 def get_db():

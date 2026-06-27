@@ -1,13 +1,14 @@
 import asyncio
 from llm.client import chat
 from memory.sqlite_store import DataBase
+from workflows.config import WORKFLOW_DB
 from workflows import email_workflow
 from workflows.async_workflow import process_batch
 from my_agents.agent import Agent
 
 
 def process_single():
-    db = DataBase("workflow.db")
+    db = DataBase(WORKFLOW_DB)
     fake_mail = "Our production server is down. Immediate assistance required."
     email_workflow.process_email(fake_mail, db)
 

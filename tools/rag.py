@@ -1,7 +1,15 @@
-from sentence_transformers import SentenceTransformer
 from llm.client import chat
 
-model = SentenceTransformer('all-MiniLM-L6-v2')
+_model = None
+
+
+def _get_model():
+    global _model
+    if _model is None:
+        from sentence_transformers import SentenceTransformer
+        _model = SentenceTransformer('all-MiniLM-L6-v2')
+    return _model
+
 
 INTENT_CONTENT_MAP = {
     "approval_request": "This email requires approval. Respond professionally, acknowledge the request, and indicate next steps or approval status.",
@@ -53,6 +61,7 @@ def chunk_input(text, chunk_size: int = 200, overlap: int = 50):
 
 
 def get_embeddings(chunks):
+    model = _get_model()
     embeddings = []
     for chunk in chunks:
         embedding = model.encode(chunk)
@@ -61,4 +70,5 @@ def get_embeddings(chunks):
 
 
 def get_similarity(embedding1, embedding2):
+    model = _get_model()
     return model.similarity(embedding1, embedding2)

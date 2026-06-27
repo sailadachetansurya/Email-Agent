@@ -52,6 +52,7 @@ class AuditAgent:
 
 def audit(task, action, details=None):
     from memory.sqlite_store import DataBase
-    db = DataBase("workflow.db")
+    from workflows.config import WORKFLOW_DB
+    db = DataBase(WORKFLOW_DB)
     agent = AuditAgent(db)
     agent.log_action(task.Ticket_id, action, details)

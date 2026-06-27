@@ -11,6 +11,7 @@ llm_config.json
 gmail_credentials.json
 gmail_token.json
 workflow.db
+workflows/workflow.db
 logs/
 output/
 metrics/
