@@ -6,6 +6,7 @@ from memory.sqlite_store import DataBase
 from models.schemas import EmailTask
 from tools import logger
 from tools.ticket_manager import create_Ticket
+from tools.output_writer import save_result
 
 executor = ThreadPoolExecutor(max_workers=4)
 
@@ -38,6 +39,8 @@ def _process_sync(email_text, db):
         task.status = "completed"
         audit.log_action(task.Ticket_id, "reply_generated")
         DataBase.save_workflow_state(task.db, task.Ticket_id, task.to_dict())
+
+    save_result(task.email_text, task.classification, task.reply, task.Ticket_id)
 
     logger.log(task)
     task.status = "logged & completed"
